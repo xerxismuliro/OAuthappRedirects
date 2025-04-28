@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Threadly OAuth Redirect</title>
+  <script>
+    // Extract the access token and other parameters
+    const fragment = window.location.hash.substring(1);
+    if (fragment) {
+      // Redirect to your app with the same parameters
+      window.location.replace('threadly://callback#' + fragment);
+    } else {
+      document.getElementById('message').textContent = 'No authentication data received. Please try again.';
+    }
+  </script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Threadly Authentication</h2>
+    <p id="message">Redirecting back to the app...</p>
+    <p>If you're not automatically redirected, please close this window and return to the app.</p>
+  </div>
+</body>
+</html>
