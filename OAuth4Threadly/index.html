@@ -1,69 +1,123 @@
+
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Threadly OAuth Redirect</title>
+  <title>Threadly Authentication</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script>
-    // Function to log details for debugging
-    function logDebugInfo() {
-      const debugInfo = {
-        url: window.location.href,
-        hash: window.location.hash,
-        search: window.location.search,
-        userAgent: navigator.userAgent
-      };
-      
-      console.log('Debug info:', JSON.stringify(debugInfo, null, 2));
-      
-      // Display in UI
-      document.getElementById('debug-info').textContent = JSON.stringify(debugInfo, null, 2);
+    // Function to exchange authorization code for token
+    async function exchangeCodeForToken(code, codeVerifier, redirectUri, clientId) {
+      try {
+        const tokenEndpoint = 'https://oauth2.googleapis.com/token';
+        const params = new URLSearchParams();
+        params.append('client_id', clientId);
+        params.append('grant_type', 'authorization_code');
+        params.append('code', code);
+        params.append('redirect_uri', redirectUri);
+        params.append('code_verifier', codeVerifier);
+        
+        const response = await fetch(tokenEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: params
+        });
+        
+        if (!response.ok) {
+          throw new Error('Token exchange failed: ' + response.status);
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error('Error exchanging code for token:', error);
+        throw error;
+      }
     }
     
-    window.onload = function() {
+    window.onload = async function() {
+      const clientId = '747783818163-be88pqbak1rj5ru2ukrhtutd14k2vuio.apps.googleusercontent.com';
+      const redirectUri = 'https://xerxismuliro.github.io/OAuthappRedirects/OAuth4Threadly';
+      
       try {
-        // Log debug information
-        logDebugInfo();
+        document.getElementById('message').textContent = 'Processing authentication...';
         
-        // Extract the token from the URL fragment
-        const fragment = window.location.hash.substring(1);
-        if (fragment) {
-          // Log success
-          console.log('Fragment detected, attempting redirect to app with:', fragment);
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        const error = urlParams.get('error');
+        
+        // Get stored values
+        const expectedState = localStorage.getItem('oauth_state');
+        const codeVerifier = localStorage.getItem('code_verifier');
+        
+        if (error) {
+          throw new Error('OAuth error: ' + error);
+        }
+        
+        if (!code) {
+          throw new Error('No authorization code received');
+        }
+        
+        if (state !== expectedState) {
+          throw new Error('State parameter mismatch - possible CSRF attack');
+        }
+        
+        if (!codeVerifier) {
+          throw new Error('Code verifier not found');
+        }
+        
+        // Exchange code for token
+        const tokenResponse = await exchangeCodeForToken(code, codeVerifier, redirectUri, clientId);
+        
+        // Store tokens securely
+        const accessToken = tokenResponse.access_token;
+        const refreshToken = tokenResponse.refresh_token;
+        const expiresIn = tokenResponse.expires_in;
+        
+        if (accessToken && expiresIn) {
+          const expiryTime = new Date().getTime() + (parseInt(expiresIn) * 1000);
           
-          // Try direct deep link first
-          const appUrl = 'threadly://callback#' + fragment;
-          console.log('Redirecting to:', appUrl);
+          localStorage.setItem('gmailAccessToken', accessToken);
+          localStorage.setItem('tokenExpiry', expiryTime.toString());
           
-          // Create a clickable fallback
-          const manualLink = document.getElementById('manual-link');
-          manualLink.href = appUrl;
-          manualLink.style.display = 'block';
+          // Store refresh token if present
+          if (refreshToken) {
+            localStorage.setItem('gmailRefreshToken', refreshToken);
+          }
           
-          // Attempt redirect
-          window.location.href = appUrl;
+          localStorage.setItem('authTimestamp', Date.now().toString());
           
-          // If we're still here after a delay, show manual instructions
+          // Show success message
+          document.getElementById('message').textContent = 'Authentication successful!';
+          document.getElementById('success-message').style.display = 'block';
+          
+          // Clean up verification data
+          localStorage.removeItem('oauth_state');
+          localStorage.removeItem('code_verifier');
+          
+          // After a delay, try to close the window
           setTimeout(function() {
-            document.getElementById('manual-steps').style.display = 'block';
-            document.getElementById('message').textContent = 
-              'Automatic redirection may have failed. Please tap the button below or follow the manual steps.';
-          }, 1500);
+            try {
+              window.close();
+            } catch (e) {
+              console.log('Could not auto-close window');
+            }
+          }, 3000);
         } else {
-          document.getElementById('message').textContent = 
-            'No authentication data received. Please try again.';
-          document.getElementById('error-info').style.display = 'block';
+          throw new Error('Invalid token response');
         }
       } catch (error) {
-        console.error('Error in redirect page:', error);
-        document.getElementById('message').textContent = 
-          'Error processing authentication: ' + error.message;
-        document.getElementById('error-info').style.display = 'block';
+        console.error('Authentication error:', error);
+        document.getElementById('message').textContent = 'Authentication error: ' + error.message;
+        document.getElementById('error-message').style.display = 'block';
       }
     };
   </script>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       text-align: center;
       margin-top: 50px;
       background-color: #f7f9fc;
@@ -81,47 +135,31 @@
     h2 {
       color: #4285f4;
     }
-    #manual-steps {
+    .message {
       display: none;
       margin-top: 20px;
       padding: 15px;
-      background-color: #f8f9fa;
       border-radius: 5px;
-      text-align: left;
     }
-    #error-info {
-      display: none;
+    .success {
+      background-color: #e6f4ea;
+      border: 1px solid #34a853;
+    }
+    .error {
+      background-color: #fce8e6;
+      border: 1px solid #ea4335;
+    }
+    button {
       margin-top: 20px;
-      padding: 15px;
-      background-color: #fee;
-      border-radius: 5px;
-      text-align: left;
-      border: 1px solid #fcc;
-    }
-    #debug-info {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #f0f0f0;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 12px;
-      overflow-x: auto;
-      text-align: left;
-      white-space: pre-wrap;
-    }
-    .button {
-      display: none;
-      margin: 20px auto;
-      padding: 12px 24px;
+      padding: 10px 20px;
       background-color: #4285f4;
       color: white;
       border: none;
       border-radius: 4px;
       font-size: 16px;
       cursor: pointer;
-      text-decoration: none;
     }
-    .button:hover {
+    button:hover {
       background-color: #357ae8;
     }
   </style>
@@ -131,27 +169,18 @@
     <h2>Threadly Authentication</h2>
     <p id="message">Processing authentication...</p>
     
-    <a id="manual-link" class="button" href="#">Open Threadly App</a>
-    
-    <div id="manual-steps">
-      <h3>Manual Steps:</h3>
-      <ol>
-        <li>Tap the "Open Threadly App" button above</li>
-        <li>If that doesn't work, close this browser window</li>
-        <li>Return to the Threadly app</li>
-        <li>If authentication still fails, try signing in again</li>
-      </ol>
+    <div id="success-message" class="message success">
+      <p>Authentication successful! You can close this window and return to the app.</p>
+      <button onclick="window.close()">Close Window</button>
     </div>
     
-    <div id="error-info">
-      <h3>Troubleshooting Information:</h3>
-      <p>Something went wrong with the authentication process. The following information may help diagnose the issue:</p>
-      <div id="debug-info"></div>
+    <div id="error-message" class="message error">
+      <p>Something went wrong with the authentication. Please try again.</p>
+      <button onclick="window.close()">Close Window</button>
     </div>
   </div>
 </body>
 </html>
-
 
 
 
